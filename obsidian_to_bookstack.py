@@ -282,9 +282,24 @@ class BookStackAPI:
     
     def upload_image(self, image_path: Path, page_id: int, name: str = None) -> Optional[Dict]:
         """Sube una imagen a BookStack y la asocia a una página"""
+        file_handle = None
         try:
             if not image_path.exists():
                 print(f"Archivo de imagen no encontrado: {image_path}")
+                return None
+            
+            # Verificar tamaño del archivo
+            file_size = image_path.stat().st_size
+            file_size_mb = file_size / (1024 * 1024)
+            
+            if file_size_mb > 20:  # Límite típico para imágenes
+                print(f"Error subiendo imagen {image_path.name}: Imagen demasiado grande ({file_size_mb:.1f} MB). Límite recomendado: 20 MB")
+                return None
+            
+            # Verificar que sea un formato de imagen válido
+            valid_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg'}
+            if image_path.suffix.lower() not in valid_extensions:
+                print(f"Error subiendo imagen {image_path.name}: Formato no soportado ({image_path.suffix}). Formatos válidos: {', '.join(valid_extensions)}")
                 return None
             
             # Preparar headers sin Content-Type para multipart/form-data
@@ -293,8 +308,9 @@ class BookStackAPI:
             }
             
             # Preparar datos del formulario
+            file_handle = open(image_path, 'rb')
             files = {
-                'image': (image_path.name, open(image_path, 'rb'), f'image/{image_path.suffix[1:]}'),
+                'image': (image_path.name, file_handle, f'image/{image_path.suffix[1:]}'),
                 'name': (None, name or image_path.stem),
                 'type': (None, 'gallery'),
                 'uploaded_to': (None, str(page_id))
@@ -303,27 +319,48 @@ class BookStackAPI:
             response = requests.post(
                 f"{self.api_url}image-gallery",
                 headers=headers,
-                files=files
+                files=files,
+                timeout=60  # Timeout de 60 segundos para imágenes grandes
             )
-            
-            # Cerrar el archivo
-            files['image'][1].close()
             
             if response.status_code == 200:
                 return response.json()
             else:
-                print(f"Error subiendo imagen {image_path.name}: {response.status_code} - {response.text}")
+                # Mensajes de error más específicos según el código de estado
+                error_details = self._get_upload_error_details(response.status_code, response.text, file_size_mb)
+                print(f"Error subiendo imagen {image_path.name}: {error_details}")
                 return None
                 
-        except Exception as e:
-            print(f"Error subiendo imagen {image_path}: {e}")
+        except requests.exceptions.Timeout:
+            print(f"Error subiendo imagen {image_path.name}: Timeout - La imagen tardó demasiado en subirse (>60s). Verifique el tamaño de la imagen ({file_size_mb:.1f} MB) y la conexión a internet")
             return None
+        except requests.exceptions.ConnectionError:
+            print(f"Error subiendo imagen {image_path.name}: Error de conexión - No se pudo conectar con el servidor BookStack")
+            return None
+        except PermissionError:
+            print(f"Error subiendo imagen {image_path.name}: Sin permisos para leer el archivo")
+            return None
+        except Exception as e:
+            print(f"Error subiendo imagen {image_path.name}: Error inesperado - {type(e).__name__}: {e}")
+            return None
+        finally:
+            # Asegurar que el archivo se cierre siempre
+            if file_handle:
+                file_handle.close()
     
     def upload_attachment(self, file_path: Path, page_id: int, name: str = None) -> Optional[Dict]:
         """Sube un adjunto a BookStack usando la API específica de attachments"""
         try:
             if not file_path.exists():
                 print(f"Archivo adjunto no encontrado: {file_path}")
+                return None
+            
+            # Verificar tamaño del archivo
+            file_size = file_path.stat().st_size
+            file_size_mb = file_size / (1024 * 1024)
+            
+            if file_size_mb > 50:  # Límite típico de muchos servidores
+                print(f"Error subiendo adjunto {file_path.name}: Archivo demasiado grande ({file_size_mb:.1f} MB). Límite recomendado: 50 MB")
                 return None
             
             # Preparar headers sin Content-Type para multipart/form-data
@@ -345,19 +382,53 @@ class BookStackAPI:
                     f"{self.api_url}attachments",
                     headers=headers,
                     files=files,
-                    data=data
+                    data=data,
+                    timeout=60  # Timeout de 60 segundos para archivos grandes
                 )
             
             if response.status_code == 200:
                 return response.json()
             else:
-                print(f"Error subiendo adjunto {file_path.name}: {response.status_code} - {response.text}")
+                # Mensajes de error más específicos según el código de estado
+                error_details = self._get_upload_error_details(response.status_code, response.text, file_size_mb)
+                print(f"Error subiendo adjunto {file_path.name}: {error_details}")
                 return None
                 
-        except Exception as e:
-            print(f"Error subiendo adjunto {file_path}: {e}")
+        except requests.exceptions.Timeout:
+            print(f"Error subiendo adjunto {file_path.name}: Timeout - El archivo tardó demasiado en subirse (>60s). Verifique el tamaño del archivo ({file_size_mb:.1f} MB) y la conexión a internet")
             return None
-
+        except requests.exceptions.ConnectionError:
+            print(f"Error subiendo adjunto {file_path.name}: Error de conexión - No se pudo conectar con el servidor BookStack")
+            return None
+        except PermissionError:
+            print(f"Error subiendo adjunto {file_path.name}: Sin permisos para leer el archivo")
+            return None
+        except Exception as e:
+            print(f"Error subiendo adjunto {file_path.name}: Error inesperado - {type(e).__name__}: {e}")
+            return None
+    
+    def _get_upload_error_details(self, status_code: int, response_text: str, file_size_mb: float) -> str:
+        """Proporciona detalles específicos del error según el código de estado HTTP"""
+        if status_code == 400:
+            return f"Solicitud inválida (400) - Posibles causas: formato de archivo no soportado, datos corruptos o parámetros incorrectos. Tamaño: {file_size_mb:.1f} MB"
+        elif status_code == 401:
+            return "No autorizado (401) - Token de API inválido o expirado"
+        elif status_code == 403:
+            return "Acceso denegado (403) - Sin permisos para subir adjuntos. Verifique los permisos del usuario en BookStack"
+        elif status_code == 404:
+            return "No encontrado (404) - La página especificada no existe o la URL de la API es incorrecta"
+        elif status_code == 413:
+            return f"Archivo demasiado grande (413) - El servidor rechazó el archivo de {file_size_mb:.1f} MB. Reduzca el tamaño del archivo"
+        elif status_code == 415:
+            return "Tipo de archivo no soportado (415) - BookStack no acepta este formato de archivo"
+        elif status_code == 422:
+            return f"Datos no procesables (422) - Error de validación. Detalles: {response_text[:200]}"
+        elif status_code == 429:
+            return "Demasiadas solicitudes (429) - Límite de velocidad excedido. Espere antes de reintentar"
+        elif status_code >= 500:
+            return f"Error del servidor ({status_code}) - Problema interno de BookStack. Detalles: {response_text[:200]}"
+        else:
+            return f"Error HTTP {status_code} - {response_text[:200]}"
 
 class ObsidianParser:
     """Parser para archivos de Obsidian"""
@@ -846,7 +917,7 @@ class ObsidianToBookStackTransfer:
                         self._add_error('imagen', str(image_path.name), error_msg)
                         self.stats['images_failed'] += 1
                 else:
-                    error_msg = f"Error subiendo imagen: {image_path.name}"
+                    error_msg = f"Falló la subida de la imagen: {image_path.name} (verifique tamaño, formato y permisos)"
                     self._print_error(f"      ✗ {error_msg}")
                     self._add_error('imagen', str(image_path.name), error_msg)
                     self.stats['images_failed'] += 1
@@ -894,7 +965,7 @@ class ObsidianToBookStackTransfer:
                         self._add_error('adjunto', str(attachment_path.name), error_msg)
                         self.stats['attachments_failed'] += 1
                 else:
-                    error_msg = f"Error subiendo adjunto: {attachment_path.name}"
+                    error_msg = f"Falló la subida del adjunto: {attachment_path.name} (verifique tamaño, formato y permisos)"
                     self._print_error(f"      ✗ {error_msg}")
                     self._add_error('adjunto', str(attachment_path.name), error_msg)
                     self.stats['attachments_failed'] += 1
