@@ -20,6 +20,8 @@ Esta herramienta te permite transferir el contenido de tu bóveda de Obsidian a 
 - ✅ **NUEVO**: Salida con colores y estadísticas detalladas de transferencia
 - ✅ **NUEVO**: Reporte de errores detallado en el resumen final
 - ✅ **NUEVO**: Prueba de conexión integrada con diagnósticos detallados (`--test-connection`)
+- ✅ **NUEVO**: Validación inteligente de configuración con mensajes de error claros
+- ✅ **NUEVO**: Detección automática de tokens de ejemplo y configuraciones incorrectas
 
 ## Requisitos
 
@@ -329,6 +331,75 @@ Esto te permite verificar qué imágenes se transferirán correctamente antes de
 - **Presentaciones**: `.ppt`, `.pptx`
 - **Archivos comprimidos**: `.zip`, `.rar`, `.7z`
 - **Otros**: Cualquier tipo de archivo que BookStack permita
+
+## Validación de Configuración
+
+La herramienta incluye validación inteligente que detecta automáticamente errores comunes de configuración:
+
+### Errores Detectados Automáticamente
+
+- ✅ **Archivos de configuración faltantes o corruptos**
+- ✅ **Secciones y campos requeridos faltantes**
+- ✅ **Tokens de API vacíos o con valores de ejemplo**
+- ✅ **URLs mal formateadas** (sin http:// o https://)
+- ✅ **Rutas de vault de Obsidian inexistentes**
+- ✅ **Tokens que parecen ser valores de ejemplo**
+
+### Mensajes de Error Mejorados
+
+Cuando hay problemas de configuración, recibirás mensajes claros con soluciones específicas:
+
+```bash
+❌ Errores en la configuración:
+   1. Campo 'bookstack.token_id' está vacío - necesitas configurar tus tokens de API
+   2. La ruta del vault de Obsidian no existe: /ruta/incorrecta
+
+💡 Soluciones:
+   • Copia config.json.example a config.json
+   • Edita config.json con tus datos reales
+   • Para obtener tokens de API, ve a BookStack > Configuración > Tokens de API
+   • Asegúrate de que la ruta del vault de Obsidian sea correcta
+```
+
+### Comandos de Diagnóstico
+
+```bash
+# Validar configuración sin hacer cambios
+python obsidian_to_bookstack.py config.json --dry-run
+
+# Probar conexión con diagnósticos detallados
+python obsidian_to_bookstack.py config.json --test-connection
+```
+
+## Control de Rate Limiting
+
+Para evitar errores de "Demasiadas solicitudes (429)" al subir imágenes y adjuntos, puedes configurar un retardo entre peticiones:
+
+```json
+{
+  "transfer": {
+    "request_delay_seconds": 1.0
+  }
+}
+```
+
+### Valores Recomendados
+
+- **0.0**: Sin delay (por defecto) - Máxima velocidad
+- **0.5**: Balance entre velocidad y estabilidad
+- **1.0**: Recomendado para la mayoría de servidores
+- **2.0**: Para servidores muy restrictivos
+
+### Mecanismo de Retry Automático
+
+Si aún ocurren errores 429, el sistema implementa un mecanismo de retry automático con backoff exponencial:
+
+- **Primer intento**: Espera 2 segundos
+- **Segundo intento**: Espera 4 segundos  
+- **Tercer intento**: Espera 8 segundos
+- **Después de 3 intentos**: Reporta el error
+
+Esto se aplica automáticamente a todas las operaciones de subida de imágenes y adjuntos.
 
 ## Solución de problemas
 

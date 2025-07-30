@@ -1042,12 +1042,18 @@ class ObsidianToBookStackTransfer:
         print(f"Vault de Obsidian: {self.config['obsidian']['vault_path']}")
         print(f"BookStack URL: {self.config['bookstack']['url']}")
         
-        # Verificar conexión
+        # Verificar conexión con diagnósticos detallados
         print("\n--- Verificando conexión ---")
-        if self.bookstack.test_connection():
-            print("✓ Conexión con BookStack exitosa")
+        if self.bookstack.test_connection(verbose=True):
+            print("\n✅ Conexión con BookStack exitosa - La configuración es válida")
         else:
-            print("✗ No se pudo conectar con BookStack")
+            print("\n❌ No se pudo conectar con BookStack")
+            print("\n💡 Posibles soluciones:")
+            print("   • Verifica que la URL de BookStack sea correcta")
+            print("   • Asegúrate de que los tokens de API sean válidos")
+            print("   • Comprueba que BookStack esté accesible desde tu red")
+            print("   • Ejecuta con --test-connection para más detalles")
+            print("\n⚠️  La simulación no puede continuar sin una conexión válida.")
             return
         
         # Analizar archivos
@@ -1176,9 +1182,72 @@ def load_config(config_path: str) -> Dict:
     """Carga la configuración desde un archivo JSON"""
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            config = json.load(f)
+        
+        # Validar estructura de configuración
+        _validate_config(config)
+        return config
     except Exception as e:
         raise ValueError(f"Error cargando configuración: {e}")
+
+
+def _validate_config(config: Dict) -> None:
+    """Valida que la configuración tenga todos los campos requeridos"""
+    required_sections = {
+        'bookstack': ['url', 'token_id', 'token_secret'],
+        'obsidian': ['vault_path'],
+        'transfer': ['book_name', 'shelf_name']
+    }
+    
+    missing_fields = []
+    
+    for section, fields in required_sections.items():
+        if section not in config:
+            missing_fields.append(f"Sección '{section}' faltante")
+            continue
+            
+        for field in fields:
+            if field not in config[section]:
+                missing_fields.append(f"Campo '{section}.{field}' faltante")
+            elif not config[section][field] or str(config[section][field]).strip() == "":
+                if field in ['token_id', 'token_secret']:
+                    missing_fields.append(f"Campo '{section}.{field}' está vacío - necesitas configurar tus tokens de API")
+                else:
+                    missing_fields.append(f"Campo '{section}.{field}' está vacío")
+    
+    # Validaciones específicas
+    if 'bookstack' in config:
+        url = config['bookstack'].get('url', '')
+        if url and not (url.startswith('http://') or url.startswith('https://')):
+            missing_fields.append("Campo 'bookstack.url' debe comenzar con http:// o https://")
+        
+        # Verificar si los tokens parecen ser valores de ejemplo
+        token_id = config['bookstack'].get('token_id', '')
+        token_secret = config['bookstack'].get('token_secret', '')
+        
+        if token_id and ('tu_token' in token_id.lower() or 'your_token' in token_id.lower() or 'ejemplo' in token_id.lower()):
+            missing_fields.append("Campo 'bookstack.token_id' parece ser un valor de ejemplo - necesitas tu token real de BookStack")
+        
+        if token_secret and ('tu_token' in token_secret.lower() or 'your_token' in token_secret.lower() or 'ejemplo' in token_secret.lower()):
+            missing_fields.append("Campo 'bookstack.token_secret' parece ser un valor de ejemplo - necesitas tu token real de BookStack")
+    
+    if 'obsidian' in config:
+        vault_path = config['obsidian'].get('vault_path', '')
+        if vault_path and not os.path.exists(vault_path):
+            missing_fields.append(f"La ruta del vault de Obsidian no existe: {vault_path}")
+    
+    if missing_fields:
+        error_msg = "\n❌ Errores en la configuración:\n"
+        for i, field in enumerate(missing_fields, 1):
+            error_msg += f"   {i}. {field}\n"
+        
+        error_msg += "\n💡 Soluciones:\n"
+        error_msg += "   • Copia config.json.example a config.json\n"
+        error_msg += "   • Edita config.json con tus datos reales\n"
+        error_msg += "   • Para obtener tokens de API, ve a BookStack > Configuración > Tokens de API\n"
+        error_msg += "   • Asegúrate de que la ruta del vault de Obsidian sea correcta\n"
+        
+        raise ValueError(error_msg)
 
 
 def main():
@@ -1190,37 +1259,71 @@ def main():
     args = parser.parse_args()
     
     try:
+        # Verificar que el archivo de configuración existe
+        if not os.path.exists(args.config):
+            print(f"❌ Error: El archivo de configuración '{args.config}' no existe.")
+            print("\n💡 Soluciones:")
+            print("   • Copia config.json.example a config.json")
+            print("   • Edita config.json con tus datos reales")
+            print("   • Verifica la ruta del archivo")
+            exit(1)
+        
         config = load_config(args.config)
         
         if args.test_connection:
+            print("🔍 Ejecutando prueba de conexión detallada...")
             # Solo probar conexión con diagnósticos detallados
+            request_delay = config.get('transfer', {}).get('request_delay_seconds', 0.0)
             bookstack = BookStackAPI(
                 config['bookstack']['url'],
                 config['bookstack']['token_id'],
-                config['bookstack']['token_secret']
+                config['bookstack']['token_secret'],
+                request_delay
             )
             success = bookstack.test_connection(verbose=True)
             if not success:
                 print("\n❌ La prueba de conexión falló. Revisa tu configuración antes de continuar.")
+                print("\n💡 Pasos para solucionar:")
+                print("   1. Verifica que BookStack esté accesible desde tu navegador")
+                print("   2. Ve a BookStack > Configuración > Tokens de API")
+                print("   3. Crea un nuevo token o verifica que el existente sea válido")
+                print("   4. Actualiza config.json con los tokens correctos")
                 exit(1)
             return
         
         if args.dry_run:
-            print("Modo simulación activado - no se creará contenido real")
+            print("🧪 Modo simulación activado - no se creará contenido real")
             transfer = ObsidianToBookStackTransfer(config)
             transfer.dry_run_transfer()
             return
         
+        print("🚀 Iniciando transferencia real...")
         transfer = ObsidianToBookStackTransfer(config)
         success = transfer.transfer()
         
         if success:
-            print("\n¡Transferencia exitosa!")
+            print("\n🎉 ¡Transferencia exitosa!")
         else:
-            print("\nLa transferencia falló")
+            print("\n❌ La transferencia falló")
+            print("\n💡 Sugerencias:")
+            print("   • Ejecuta con --dry-run para verificar la configuración")
+            print("   • Ejecuta con --test-connection para verificar la conectividad")
+            print("   • Revisa los mensajes de error anteriores")
             
+    except ValueError as e:
+        # Errores de configuración (más específicos)
+        print(str(e))
+        exit(1)
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Transferencia cancelada por el usuario")
+        exit(1)
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"❌ Error inesperado: {e}")
+        print("\n💡 Si el problema persiste:")
+        print("   • Ejecuta con --test-connection para verificar la configuración")
+        print("   • Revisa que todos los archivos estén en su lugar")
+        print("   • Verifica los permisos de los archivos")
+        exit(1)
 
 
 if __name__ == "__main__":
