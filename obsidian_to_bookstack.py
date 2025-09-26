@@ -655,14 +655,16 @@ class ObsidianParser:
                             if line.strip().startswith('title:'):
                                 title = line.split(':', 1)[1].strip().strip('"\'')
             
+            # Eliminar cabecera '# Título' al inicio si coincide con el título
+            cabecera_regex = rf'^#\s*{re.escape(title)}\s*\n?'
+            nuevo_content = re.sub(cabecera_regex, '', content, count=1, flags=re.IGNORECASE)
             # Encontrar imágenes y adjuntos en el contenido
-            images = self.find_images_in_content(content, file_path)
-            attachments = self.find_attachments_in_content(content, file_path)
-            
+            images = self.find_images_in_content(nuevo_content, file_path)
+            attachments = self.find_attachments_in_content(nuevo_content, file_path)
             return {
                 'title': title,
-                'content': content,
-                'markdown_content': content,
+                'content': nuevo_content,
+                'markdown_content': nuevo_content,
                 'relative_path': str(file_path.relative_to(self.vault_path)),
                 'metadata': metadata,
                 'folder': str(file_path.parent.relative_to(self.vault_path)) if file_path.parent != self.vault_path else 'root',
