@@ -1,0 +1,14 @@
+{
+  "bookstack": {
+    "url": "https://tu-bookstack.com",
+    "token_id": "tu_token_id_aqui",
+    "token_secret": "tu_token_secret_aqui"
+  },
+  "obsidian": {
+    "vault_path": "/ruta/a/tu/boveda/obsidian"
+  },
+  "transfer": {
+    "book_name": "Contenido de Obsidian",
+    "shelf_name": "Contenido de Obsidian"
+  }
+}
