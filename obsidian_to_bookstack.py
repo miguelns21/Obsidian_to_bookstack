@@ -321,8 +321,11 @@ class BookStackAPI:
             file_size = image_path.stat().st_size
             file_size_mb = file_size / (1024 * 1024)
             
-            if file_size_mb > 20:  # Límite típico para imágenes
-                print(f"Error subiendo imagen {image_path.name}: Imagen demasiado grande ({file_size_mb:.1f} MB). Límite recomendado: 20 MB")
+            # Obtener límite desde configuración o usar valor por defecto
+            max_image_size = self.config.get('transfer', {}).get('max_image_size_mb', 100)
+            
+            if file_size_mb > max_image_size:
+                print(f"Error subiendo imagen {image_path.name}: Imagen demasiado grande ({file_size_mb:.1f} MB). Límite configurado: {max_image_size} MB")
                 return None
             
             # Verificar que sea un formato de imagen válido
@@ -336,28 +339,36 @@ class BookStackAPI:
                 'Authorization': f'Token {self.headers["Authorization"].split(" ")[1]}'
             }
             
-            # Preparar datos del formulario
-            file_handle = open(image_path, 'rb')
-            files = {
-                'image': (image_path.name, file_handle, f'image/{image_path.suffix[1:]}'),
-                'name': (None, name or image_path.stem),
-                'type': (None, 'gallery'),
-                'uploaded_to': (None, str(page_id))
-            }
+            # Preparar datos del formulario con context manager
+            with open(image_path, 'rb') as file_handle:
+                files = {
+                    'image': (image_path.name, file_handle, f'image/{image_path.suffix[1:]}'),
+                    'name': (None, name or image_path.stem),
+                    'type': (None, 'gallery'),
+                    'uploaded_to': (None, str(page_id))
+                }
+                
+                response = requests.post(
+                    f"{self.api_url}image-gallery",
+                    headers=headers,
+                    files=files,
+                    timeout=60  # Timeout de 60 segundos para imágenes grandes
+                )
             
-            response = requests.post(
-                f"{self.api_url}image-gallery",
-                headers=headers,
-                files=files,
-                timeout=60  # Timeout de 60 segundos para imágenes grandes
-            )
+            # Detectar redirecciones de SSO
+            if response.status_code == 302:
+                location = response.headers.get('location', '')
+                if 'auth' in location.lower():
+                    print(f"Error subiendo imagen {image_path.name}: BookStack está usando SSO y bloquea la API")
+                    print(f"  💡 Solución: Deshabilita SSO para la API en BookStack o configura acceso especial")
+                    return None
             
             if response.status_code == 200:
                 return response.json()
             else:
                 # Mensajes de error más específicos según el código de estado
                 error_details = self._get_upload_error_details(response.status_code, response.text, file_size_mb)
-                print(f"Error subiendo imagen {image_path.name}: {error_details}")
+                print(f"Error subiendo imagen {image_path.name} (HTTP {response.status_code}): {error_details}")
                 return None
                 
         except requests.exceptions.Timeout:
@@ -388,8 +399,15 @@ class BookStackAPI:
             file_size = file_path.stat().st_size
             file_size_mb = file_size / (1024 * 1024)
             
-            if file_size_mb > 50:  # Límite típico de muchos servidores
-                print(f"Error subiendo adjunto {file_path.name}: Archivo demasiado grande ({file_size_mb:.1f} MB). Límite recomendado: 50 MB")
+            # Obtener límite desde configuración o usar valor por defecto (200 MB para adjuntos/videos)
+            max_attachment_size = self.config.get('transfer', {}).get('max_attachment_size_mb', 200)
+            
+            if file_size_mb > max_attachment_size:
+                print(f"Error subiendo adjunto {file_path.name}: Archivo demasiado grande ({file_size_mb:.1f} MB). Límite configurado: {max_attachment_size} MB")
+                print(f"  💡 Para archivos más grandes, considera:")
+                print(f"     • Aumentar 'max_attachment_size_mb' en config.json")
+                print(f"     • Comprimir el video (.mkv → usar herramienta de compresión)")
+                print(f"     • Dividir el contenido en múltiples archivos")
                 return None
             
             # Preparar headers sin Content-Type para multipart/form-data
@@ -415,12 +433,20 @@ class BookStackAPI:
                     timeout=60  # Timeout de 60 segundos para archivos grandes
                 )
             
+            # Detectar redirecciones de SSO
+            if response.status_code == 302:
+                location = response.headers.get('location', '')
+                if 'auth' in location.lower():
+                    print(f"Error subiendo adjunto {file_path.name}: BookStack está usando SSO y bloquea la API")
+                    print(f"  💡 Solución: Deshabilita SSO para la API en BookStack o configura acceso especial")
+                    return None
+            
             if response.status_code == 200:
                 return response.json()
             else:
                 # Mensajes de error más específicos según el código de estado
                 error_details = self._get_upload_error_details(response.status_code, response.text, file_size_mb)
-                print(f"Error subiendo adjunto {file_path.name}: {error_details}")
+                print(f"Error subiendo adjunto {file_path.name} (HTTP {response.status_code}): {error_details}")
                 return None
                 
         except requests.exceptions.Timeout:

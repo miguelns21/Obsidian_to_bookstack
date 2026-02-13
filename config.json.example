@@ -9,6 +9,9 @@
   },
   "transfer": {
     "book_name": "Contenido de Obsidian",
-    "shelf_name": "Contenido de Obsidian"
+    "shelf_name": "Contenido de Obsidian",
+    "request_delay_seconds": 0.5,
+    "max_image_size_mb": 100,
+    "max_attachment_size_mb": 200
   }
 }
