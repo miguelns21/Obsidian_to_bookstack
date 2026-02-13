@@ -27,9 +27,10 @@ except ImportError:
 class BookStackAPI:
     """Cliente para interactuar con la API de BookStack"""
     
-    def __init__(self, base_url: str, token_id: str, token_secret: str):
+    def __init__(self, base_url: str, token_id: str, token_secret: str, config: Dict = None):
         self.base_url = base_url.rstrip('/')
         self.api_url = f"{self.base_url}/api/"
+        self.config = config or {}
         self.headers = {
             'Authorization': f'Token {token_id}:{token_secret}',
             'Content-Type': 'application/json'
@@ -741,7 +742,8 @@ class ObsidianToBookStackTransfer:
         self.bookstack = BookStackAPI(
             config['bookstack']['url'],
             config['bookstack']['token_id'],
-            config['bookstack']['token_secret']
+            config['bookstack']['token_secret'],
+            config
         )
         self.books = {}  # book_name -> book_id
         self.chapters = {}  # (book_id, chapter_name) -> chapter_id
@@ -1347,7 +1349,8 @@ def main():
             bookstack = BookStackAPI(
                 config['bookstack']['url'],
                 config['bookstack']['token_id'],
-                config['bookstack']['token_secret']
+                config['bookstack']['token_secret'],
+                config
             )
             success = bookstack.test_connection(verbose=True)
             if not success:
