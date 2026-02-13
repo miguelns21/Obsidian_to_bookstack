@@ -29,7 +29,7 @@ class BookStackAPI:
     
     def __init__(self, base_url: str, token_id: str, token_secret: str):
         self.base_url = base_url.rstrip('/')
-        self.api_url = urljoin(self.base_url, '/api/')
+        self.api_url = f"{self.base_url}/api/"
         self.headers = {
             'Authorization': f'Token {token_id}:{token_secret}',
             'Content-Type': 'application/json'
@@ -54,9 +54,23 @@ class BookStackAPI:
         print("="*50)
         
         try:
-            # Probar conexión básica
+            # Probar conexión básica sin seguir redirecciones
             print("1. Probando conexión básica...")
-            response = requests.get(f"{self.api_url}books", headers=self.headers, timeout=10)
+            response = requests.get(f"{self.api_url}books", headers=self.headers, timeout=10, allow_redirects=False)
+            
+            print(f"   Status Code: {response.status_code}")
+            print(f"   Content-Type: {response.headers.get('content-type', 'N/A')}")
+            
+            if response.status_code == 302:
+                location = response.headers.get('location', '')
+                if 'auth' in location.lower() or 'oauth' in location.lower() or 'sso' in location.lower():
+                    print("   ❌ BookStack está usando Single Sign-On (SSO)")
+                    print(f"      El servidor redirige a: {location[:80]}...")
+                    print("\n   Para usar la API de BookStack con SSO:")
+                    print("   1. Opción A: Deshabilita SSO en BookStack y usa tokens API")
+                    print("   2. Opción B: Obtén una sesión activa y usa cookies en lugar de tokens")
+                    print("   3. Opción C: Configura BookStack sin SSO o en una subruta diferente")
+                    return False
             
             if response.status_code == 200:
                 print("   ✅ Conexión exitosa")
@@ -67,19 +81,25 @@ class BookStackAPI:
                 print("   ❌ Sin permisos - Tu usuario no tiene acceso a la API")
                 return False
             else:
-                print(f"   ❌ Error HTTP {response.status_code}: {response.text}")
+                print(f"   ❌ Error HTTP {response.status_code}: {response.text[:200]}")
                 return False
             
             # Obtener información de libros
             print("\n2. Obteniendo información de libros...")
-            books_data = response.json()
-            books = books_data.get('data', [])
-            print(f"   📚 Libros existentes: {len(books)}")
-            
-            if books:
-                print("   Primeros 5 libros:")
-                for book in books[:5]:
-                    print(f"     - {book.get('name', 'Sin nombre')} (ID: {book.get('id')})")
+            try:
+                books_data = response.json()
+                books = books_data.get('data', [])
+                print(f"   📚 Libros existentes: {len(books)}")
+                
+                if books:
+                    print("   Primeros 5 libros:")
+                    for book in books[:5]:
+                        print(f"     - {book.get('name', 'Sin nombre')} (ID: {book.get('id')})")
+            except json.JSONDecodeError:
+                print(f"   ❌ Respuesta inválida del servidor (no es JSON)")
+                print(f"      Contenido: {response.text[:200]}")
+                print(f"      Content-Type: {response.headers.get('content-type')}")
+                return False
             
             # Probar creación de libro (simulado)
             print("\n3. Probando permisos de creación...")
@@ -97,17 +117,20 @@ class BookStackAPI:
                 print("   ✅ Permisos de creación confirmados")
                 
                 # Intentar eliminar el libro de prueba
-                test_book = create_response.json()
-                book_id = test_book.get('id')
-                if book_id:
-                    delete_response = requests.delete(f"{self.api_url}books/{book_id}", 
-                                                     headers=self.headers,
-                                                     timeout=10)
-                    if delete_response.status_code == 204:
-                        print("   🗑️  Libro de prueba eliminado correctamente")
-                    else:
-                        print(f"   ⚠️  Libro de prueba creado pero no se pudo eliminar (ID: {book_id})")
-                        print(f"      Puedes eliminarlo manualmente desde BookStack")
+                try:
+                    test_book = create_response.json()
+                    book_id = test_book.get('id')
+                    if book_id:
+                        delete_response = requests.delete(f"{self.api_url}books/{book_id}", 
+                                                         headers=self.headers,
+                                                         timeout=10)
+                        if delete_response.status_code == 204:
+                            print("   🗑️  Libro de prueba eliminado correctamente")
+                        else:
+                            print(f"   ⚠️  Libro de prueba creado pero no se pudo eliminar (ID: {book_id})")
+                except json.JSONDecodeError:
+                    print("   ⚠️  Libro creado pero no se pudo procesar la respuesta")
+                    print(f"      Puedes eliminarlo manualmente desde BookStack")
             else:
                 print(f"   ❌ Sin permisos de creación: {create_response.status_code}")
                 print(f"      {create_response.text}")
@@ -117,10 +140,13 @@ class BookStackAPI:
             print("\n4. Verificando API de páginas...")
             pages_response = requests.get(f"{self.api_url}pages", headers=self.headers, timeout=10)
             if pages_response.status_code == 200:
-                pages_data = pages_response.json()
-                pages = pages_data.get('data', [])
-                print(f"   📄 Páginas existentes: {len(pages)}")
-                print("   ✅ API de páginas accesible")
+                try:
+                    pages_data = pages_response.json()
+                    pages = pages_data.get('data', [])
+                    print(f"   📄 Páginas existentes: {len(pages)}")
+                    print("   ✅ API de páginas accesible")
+                except json.JSONDecodeError:
+                    print(f"   ❌ Respuesta inválida al obtener páginas")
             else:
                 print(f"   ❌ Error accediendo a páginas: {pages_response.status_code}")
             
@@ -128,10 +154,13 @@ class BookStackAPI:
             print("\n5. Verificando API de capítulos...")
             chapters_response = requests.get(f"{self.api_url}chapters", headers=self.headers, timeout=10)
             if chapters_response.status_code == 200:
-                chapters_data = chapters_response.json()
-                chapters = chapters_data.get('data', [])
-                print(f"   📖 Capítulos existentes: {len(chapters)}")
-                print("   ✅ API de capítulos accesible")
+                try:
+                    chapters_data = chapters_response.json()
+                    chapters = chapters_data.get('data', [])
+                    print(f"   📖 Capítulos existentes: {len(chapters)}")
+                    print("   ✅ API de capítulos accesible")
+                except json.JSONDecodeError:
+                    print(f"   ❌ Respuesta inválida al obtener capítulos")
             else:
                 print(f"   ❌ Error accediendo a capítulos: {chapters_response.status_code}")
             
@@ -1289,12 +1318,10 @@ def main():
         if args.test_connection:
             print("🔍 Ejecutando prueba de conexión detallada...")
             # Solo probar conexión con diagnósticos detallados
-            request_delay = config.get('transfer', {}).get('request_delay_seconds', 0.0)
             bookstack = BookStackAPI(
                 config['bookstack']['url'],
                 config['bookstack']['token_id'],
-                config['bookstack']['token_secret'],
-                request_delay
+                config['bookstack']['token_secret']
             )
             success = bookstack.test_connection(verbose=True)
             if not success:
