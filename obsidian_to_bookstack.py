@@ -17,7 +17,7 @@ import re
 import base64
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import urljoin
+from urllib.parse import urljoin, unquote
 try:
     import frontmatter
 except ImportError:
@@ -623,23 +623,26 @@ class ObsidianParser:
     def _resolve_image_path(self, image_path_str: str, file_path: Path) -> Optional[Path]:
         """Resuelve la ruta de una imagen relativa al archivo actual, buscando también en subcarpetas estándar"""
         try:
+            # Decodificar la ruta si está codificada en URL (ej: Business%20Central -> Business Central)
+            decoded_image_path = unquote(image_path_str)
+            
             # Intentar ruta relativa al archivo
-            relative_path = file_path.parent / image_path_str
+            relative_path = file_path.parent / decoded_image_path
             if relative_path.exists():
                 return relative_path
             # Intentar ruta relativa al vault
-            vault_relative_path = self.vault_path / image_path_str
+            vault_relative_path = self.vault_path / decoded_image_path
             if vault_relative_path.exists():
                 return vault_relative_path
             # Buscar en subcarpetas estándar dentro de la carpeta del markdown
             subfolders = ['Attachments', 'attachments', 'images', 'Images']
             for subfolder in subfolders:
-                subfolder_path = file_path.parent / subfolder / image_path_str
+                subfolder_path = file_path.parent / subfolder / decoded_image_path
                 if subfolder_path.exists():
                     return subfolder_path
             # Buscar en subcarpetas estándar dentro del vault
             for subfolder in subfolders:
-                subfolder_path = self.vault_path / subfolder / image_path_str
+                subfolder_path = self.vault_path / subfolder / decoded_image_path
                 if subfolder_path.exists():
                     return subfolder_path
             return None
@@ -660,13 +663,16 @@ class ObsidianParser:
     def _resolve_attachment_path(self, attachment_path_str: str, file_path: Path) -> Optional[Path]:
         """Resuelve la ruta de un adjunto relativa al archivo actual"""
         try:
+            # Decodificar la ruta si está codificada en URL (ej: Business%20Central -> Business Central)
+            decoded_attachment_path = unquote(attachment_path_str)
+            
             # Intentar ruta relativa al archivo
-            relative_path = file_path.parent / attachment_path_str
+            relative_path = file_path.parent / decoded_attachment_path
             if relative_path.exists():
                 return relative_path
             
             # Intentar ruta relativa al vault
-            vault_relative_path = self.vault_path / attachment_path_str
+            vault_relative_path = self.vault_path / decoded_attachment_path
             if vault_relative_path.exists():
                 return vault_relative_path
             
